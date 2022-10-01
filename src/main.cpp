@@ -11,6 +11,20 @@ struct square {
 };
 
 template<qpl::size N>
+constexpr auto candidates_string() {
+	constexpr auto size = N * (N * 2) - 1;
+	std::array<char, size + 1> result;
+	for (qpl::size i = 0u; i < size; ++i) {
+		result[i] = ' ';
+		if (i % (N * 2) == (N * 2) - 1) {
+			result[i] = '\n';
+		}
+	}
+	result[size] = '\0';
+	return result;
+}
+
+template<qpl::size N>
 struct field {
 	std::array<square<N>, qpl::pow(N, 4)> squares;
 };
@@ -45,20 +59,12 @@ struct square_graphic {
 			this->number.set_string(qpl::u32_cast(square.number));
 		}
 		else {
-			std::string text;
+			constexpr auto string = candidates_string<N>();
+			std::string text = string.data();
 			for (qpl::size i = 0u; i < square.candidates.size(); ++i) {
 				auto c = square.candidates[i];
 				if (c) {
-					text += qpl::to_string(i);
-				}
-				else {
-					text += ' ';
-				}
-				if (i % N == (N - 1)) {
-					text += '\n';
-				}
-				else {
-					text += ' ';
+					text[i * 2] = i + 1 + '0';
 				}
 			}
 			this->candidates.set_string(text);
@@ -98,8 +104,14 @@ struct field_graphic {
 			auto x = (i % (N * N));
 			auto y = (i / (N * N));
 
+			auto cell_x = x / N;
+			auto cell_y = y / N;
+
+			auto cell_off = qpl::vec(cell_x, cell_y) * 5;
+			auto normal_off = qpl::vec(2, 2);
+
 			auto offset = qpl::vec(50, 50);
-			square.set_position(offset + qpl::vec(x, y) * (square_graphic::dimension() + qpl::vec(2, 2)));
+			square.set_position(offset + qpl::vec(x, y) * (square_graphic::dimension() + normal_off) + cell_off);
 		}
 	}
 
@@ -107,13 +119,13 @@ struct field_graphic {
 		draw.draw(this->squares);
 	}
 };
+constexpr auto N_SIZE = 3;
 
 struct main_state : qsf::base_state {
 
-
 	void init() override {
 		for (auto& i : this->field.squares) {
-			i.number = qpl::random(0, 9);
+			i.number = qpl::random(0, N_SIZE * N_SIZE);
 		}
 		this->field_graphic.create(this->field);
 	}
@@ -123,7 +135,7 @@ struct main_state : qsf::base_state {
 	void drawing() override {
 		this->draw(this->field_graphic);
 	}
-	field<3> field;
+	field<N_SIZE> field;
 	field_graphic field_graphic;
 };
 
