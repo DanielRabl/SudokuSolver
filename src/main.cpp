@@ -1,14 +1,117 @@
 #include <qpl/qpl.hpp>
 
+
+
 template<qpl::size N>
 struct square {
-	qpl::ubit<qpl::log2(N)> number = 0;
+	using utype = qpl::ubit<qpl::log2(N)>;
+
+	utype number = 0;
 	qpl::bitset<N * N> candidates;
 
 	square() {
+		this->clear();
+	}
+	void clear() {
+		this->number = 0u;
 		this->candidates.fill(1);
 	}
+	operator bool() const {
+		return qpl::bool_cast(this->number);
+	}
 };
+template<qpl::size N>
+struct cell {
+	qpl::array<square<N>, qpl::pow(N, 2)> squares;
+
+	bool find(square<N>::utype number) const {
+		for (auto& i : this->squares) {
+			if (i == number) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	constexpr auto begin() {
+		return this->squares.begin();
+	}
+	constexpr auto begin() const {
+		return this->squares.cbegin();
+	}
+	constexpr auto cbegin() {
+		return this->squares.cbegin();
+	}
+	constexpr auto end() {
+		return this->squares.end();
+	}
+	constexpr auto end() const {
+		return this->squares.cend();
+	}
+	constexpr auto cend() {
+		return this->squares.cend();
+	}
+	constexpr static qpl::size size() {
+		return qpl::pow(N, 2);
+	}
+	constexpr auto& operator[](qpl::size index) {
+		return this->squares[index];
+	}
+	constexpr const auto& operator[](qpl::size index) const {
+		return this->squares[index];
+	}
+	constexpr void clear() {
+		for (auto& i : this->squares) {
+			i.clear();
+		}
+	}
+};
+template<qpl::size N>
+struct field {
+	qpl::array<cell<N>, qpl::pow(N, 2)> cells;
+
+	constexpr qpl::size size() const {
+		return qpl::pow(N, 4);
+	}
+	auto& get_cell(qpl::size x, qpl::size y) {
+		auto cx = x / N;
+		auto cy = y / N;
+		auto index = cy * N + cx;
+		return this->cells[index];
+	}
+	auto& get_square(qpl::size x, qpl::size y) {
+		auto sx = x % N;
+		auto sy = y % N;
+		auto index = sy * N + sx;
+
+		return this->get_cell(x, y)[index];
+	}
+	void clear() {
+		for (auto& cell : this->cells) {
+			cell.clear();
+		}
+	}
+	void fill(qpl::size numbers) {
+		qpl::size ctr = 0u;
+
+		while (ctr < numbers) {
+			auto x = qpl::random<qpl::size>(0u, (N * N) - 1);
+			auto y = qpl::random<qpl::size>(0u, (N * N) - 1);
+
+
+			if (this->get_square(x, y)) {
+				continue;
+			}
+			auto random_digit = qpl::random<qpl::size>(0u, cell<N>::size() - 1);
+
+			if (!this->get_cell(x, y).find(random_digit)) {
+				this->get_square(x, y).number = random_digit;
+				++ctr;
+			}
+		}
+	}
+};
+
 
 template<qpl::size N>
 constexpr auto candidates_string() {
@@ -23,11 +126,6 @@ constexpr auto candidates_string() {
 	result[size] = '\0';
 	return result;
 }
-
-template<qpl::size N>
-struct field {
-	std::array<square<N>, qpl::pow(N, 4)> squares;
-};
 
 struct square_graphic {
 	qsf::rectangle rect;
@@ -88,30 +186,33 @@ struct square_graphic {
 	}
 };
 struct field_graphic {
-	std::vector< square_graphic> squares;
+	std::vector<square_graphic> squares;
 
 	template<qpl::size N>
 	void create(const field<N>& field) {
-		this->squares.resize(field.squares.size());
+		this->squares.resize(field.size());
 
-		for (qpl::size i = 0u; i < field.squares.size(); ++i) {
-			auto& square = this->squares[i];
-			if (!square.initialized) {
-				square.init();
+		for (qpl::size c = 0u; c < field.cells.size(); ++c) {
+			for (qpl::size i = 0u; i < field.cells[c].size(); ++i) {
+				auto index = c * cell<N>::size() + i;
+				auto& square = this->squares[index];
+				if (!square.initialized) {
+					square.init();
+				}
+				square.update_info(field.cells[c][i]);
+
+				auto cx = c % N;
+				auto cy = c / N;
+
+				auto x = (i % N) + (cx * N);
+				auto y = (i / N) + (cy * N);
+
+				auto cell_off = qpl::vec(cx, cy) * 5;
+				auto normal_off = qpl::vec(2, 2);
+
+				auto offset = qpl::vec(50, 50);
+				square.set_position(offset + qpl::vec(x, y) * (square_graphic::dimension() + normal_off) + cell_off);
 			}
-			square.update_info(field.squares[i]);
-
-			auto x = (i % (N * N));
-			auto y = (i / (N * N));
-
-			auto cell_x = x / N;
-			auto cell_y = y / N;
-
-			auto cell_off = qpl::vec(cell_x, cell_y) * 5;
-			auto normal_off = qpl::vec(2, 2);
-
-			auto offset = qpl::vec(50, 50);
-			square.set_position(offset + qpl::vec(x, y) * (square_graphic::dimension() + normal_off) + cell_off);
 		}
 	}
 
@@ -123,14 +224,33 @@ constexpr auto N_SIZE = 3;
 
 struct main_state : qsf::base_state {
 
-	void init() override {
-		for (auto& i : this->field.squares) {
-			i.number = qpl::random(0, N_SIZE * N_SIZE);
-		}
+	void randomize() {
+		this->field.clear();
+		this->field.fill(20);
 		this->field_graphic.create(this->field);
 	}
-	void updating() override {
+	void benchmark() {
+		qpl::small_clock clock;
+		qpl::size ctr = 0u;
+		while (true) {
+			this->field.clear();
+			this->field.fill(20);
+			++ctr;
 
+			if (qpl::get_time_signal(0.5)) {
+				qpl::println(qpl::big_number_string(ctr / clock.elapsed_f()), " / sec");
+			}
+		}
+	}
+
+	void init() override {
+		this->randomize();
+
+	}
+	void updating() override {
+		if (this->event().key_pressed(sf::Keyboard::X)) {
+			this->randomize();
+		}
 	}
 	void drawing() override {
 		this->draw(this->field_graphic);
