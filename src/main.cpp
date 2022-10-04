@@ -1,240 +1,38 @@
 #include <qpl/qpl.hpp>
+#include "grid.hpp"
+#include "grid_graphic.hpp"
 
 
-
-template<qpl::size N>
-struct square {
-	using utype = qpl::ubit<qpl::log2(N)>;
-
-	utype number = 0;
-	qpl::bitset<N * N> candidates;
-
-	square() {
-		this->clear();
-	}
-	void clear() {
-		this->number = 0u;
-		this->candidates.fill(1);
-	}
-	operator bool() const {
-		return qpl::bool_cast(this->number);
-	}
-};
-template<qpl::size N>
-struct cell {
-	qpl::array<square<N>, qpl::pow(N, 2)> squares;
-
-	bool find(square<N>::utype number) const {
-		for (auto& i : this->squares) {
-			if (i == number) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	constexpr auto begin() {
-		return this->squares.begin();
-	}
-	constexpr auto begin() const {
-		return this->squares.cbegin();
-	}
-	constexpr auto cbegin() {
-		return this->squares.cbegin();
-	}
-	constexpr auto end() {
-		return this->squares.end();
-	}
-	constexpr auto end() const {
-		return this->squares.cend();
-	}
-	constexpr auto cend() {
-		return this->squares.cend();
-	}
-	constexpr static qpl::size size() {
-		return qpl::pow(N, 2);
-	}
-	constexpr auto& operator[](qpl::size index) {
-		return this->squares[index];
-	}
-	constexpr const auto& operator[](qpl::size index) const {
-		return this->squares[index];
-	}
-	constexpr void clear() {
-		for (auto& i : this->squares) {
-			i.clear();
-		}
-	}
-};
-template<qpl::size N>
-struct field {
-	qpl::array<cell<N>, qpl::pow(N, 2)> cells;
-
-	constexpr qpl::size size() const {
-		return qpl::pow(N, 4);
-	}
-	auto& get_cell(qpl::size x, qpl::size y) {
-		auto cx = x / N;
-		auto cy = y / N;
-		auto index = cy * N + cx;
-		return this->cells[index];
-	}
-	auto& get_square(qpl::size x, qpl::size y) {
-		auto sx = x % N;
-		auto sy = y % N;
-		auto index = sy * N + sx;
-
-		return this->get_cell(x, y)[index];
-	}
-	void clear() {
-		for (auto& cell : this->cells) {
-			cell.clear();
-		}
-	}
-	void fill(qpl::size numbers) {
-		qpl::size ctr = 0u;
-
-		while (ctr < numbers) {
-			auto x = qpl::random<qpl::size>(0u, (N * N) - 1);
-			auto y = qpl::random<qpl::size>(0u, (N * N) - 1);
-
-
-			if (this->get_square(x, y)) {
-				continue;
-			}
-			auto random_digit = qpl::random<qpl::size>(0u, cell<N>::size() - 1);
-
-			if (!this->get_cell(x, y).find(random_digit)) {
-				this->get_square(x, y).number = random_digit;
-				++ctr;
-			}
-		}
-	}
-};
-
-
-template<qpl::size N>
-constexpr auto candidates_string() {
-	constexpr auto size = N * (N * 2) - 1;
-	std::array<char, size + 1> result;
-	for (qpl::size i = 0u; i < size; ++i) {
-		result[i] = ' ';
-		if (i % (N * 2) == (N * 2) - 1) {
-			result[i] = '\n';
-		}
-	}
-	result[size] = '\0';
-	return result;
-}
-
-struct square_graphic {
-	qsf::rectangle rect;
-	qsf::text number;
-	qsf::text candidates;
-	bool is_number = true;
-	bool initialized = false;
-
-	constexpr static qpl::vector2f dimension() {
-		return { 64, 64 };
-	}
-
-	void init() {
-		this->rect.set_dimension(this->dimension());
-		this->number.set_font(qsf::get_font("font"));
-		this->candidates.set_font(qsf::get_font("font"));
-		this->number.set_character_size(40);
-		this->candidates.set_character_size(18);
-
-		this->number.set_color(qpl::rgb::black());
-		this->candidates.set_color(qpl::rgb::black());
-		this->initialized = true;
-	}
-	template<qpl::size N>
-	void update_info(const square<N>& square) {
-		this->is_number = square.number != 0;
-
-		if (this->is_number) {
-			this->number.set_string(qpl::u32_cast(square.number));
-		}
-		else {
-			constexpr auto string = candidates_string<N>();
-			std::string text = string.data();
-			for (qpl::size i = 0u; i < square.candidates.size(); ++i) {
-				auto c = square.candidates[i];
-				if (c) {
-					text[i * 2] = i + 1 + '0';
-				}
-			}
-			this->candidates.set_string(text);
-		}
-	}
-	void set_position(qpl::vector2f position) {
-		auto center = position + this->dimension() / 2;
-		this->rect.set_position(position);
-		this->candidates.set_center(center);
-		this->number.set_center(center);
-	}
-
-	void draw(qsf::draw_object& draw) const {
-		draw.draw(this->rect);
-		if (this->is_number) {
-			draw.draw(this->number);
-		}
-		else {
-			draw.draw(this->candidates);
-		}
-	}
-};
-struct field_graphic {
-	std::vector<square_graphic> squares;
-
-	template<qpl::size N>
-	void create(const field<N>& field) {
-		this->squares.resize(field.size());
-
-		for (qpl::size c = 0u; c < field.cells.size(); ++c) {
-			for (qpl::size i = 0u; i < field.cells[c].size(); ++i) {
-				auto index = c * cell<N>::size() + i;
-				auto& square = this->squares[index];
-				if (!square.initialized) {
-					square.init();
-				}
-				square.update_info(field.cells[c][i]);
-
-				auto cx = c % N;
-				auto cy = c / N;
-
-				auto x = (i % N) + (cx * N);
-				auto y = (i / N) + (cy * N);
-
-				auto cell_off = qpl::vec(cx, cy) * 5;
-				auto normal_off = qpl::vec(2, 2);
-
-				auto offset = qpl::vec(50, 50);
-				square.set_position(offset + qpl::vec(x, y) * (square_graphic::dimension() + normal_off) + cell_off);
-			}
-		}
-	}
-
-	void draw(qsf::draw_object& draw) const {
-		draw.draw(this->squares);
-	}
-};
-constexpr auto N_SIZE = 3;
+constexpr auto N = 3;
+constexpr auto FILL = 30;
 
 struct main_state : qsf::base_state {
 
-	void randomize() {
-		this->field.clear();
-		this->field.fill(20);
-		this->field_graphic.create(this->field);
+	void reset() {
+		this->current_grid.reset();
+		this->current_grid = this->created_grid;
+		this->current_grid.solve_step_ctr = 0u;
+
+		this->grid_graphic.reset();
+		this->grid_graphic.update(this->current_grid);
+		this->step_ctr = 0u;
 	}
-	void benchmark() {
+	void randomize() {
+		this->created_grid.reset();
+		this->created_grid.fill(FILL);
+		this->reset();
+	}
+	void set_valid() {
+		this->created_grid.reset();
+		this->created_grid = this->get_valid_grid();
+		this->reset();
+	}
+	void benchmark_fill() {
 		qpl::small_clock clock;
 		qpl::size ctr = 0u;
 		while (true) {
-			this->field.clear();
-			this->field.fill(20);
+			this->current_grid.reset();
+			this->current_grid.fill(FILL);
 			++ctr;
 
 			if (qpl::get_time_signal(0.5)) {
@@ -243,20 +41,102 @@ struct main_state : qsf::base_state {
 		}
 	}
 
+	grid<N> get_valid_grid() const {
+		grid<N> created;
+		grid<N> grid;
+
+		while (true) {
+			created.reset();
+			created.fill(FILL);
+			grid = created;
+
+			while (true) {
+				grid.solve_step();
+
+				if (grid.stuck()) {
+					break;
+				}
+				if (grid.filled() && grid.valid()) {
+					return created;
+				}
+			}
+		}
+		return grid;
+	}
+
+	void benchmark_solve() {
+		qpl::small_clock clock;
+		qpl::size ctr = 0u;
+
+		qpl::size filled_ctr = 0u;
+		qpl::size stuck_ctr = 0u;
+
+		grid<N> grid;
+		while (true) {
+			grid.reset();
+			grid.fill(FILL);
+
+			while (true) {
+				grid.solve_step();
+
+				if (grid.filled()) {
+					if (grid.valid()) {
+						++filled_ctr;
+						break;
+					}
+				}
+				if (grid.stuck()) {
+					++stuck_ctr;
+					break;
+				}
+			}
+
+			++ctr;
+
+			if (qpl::get_time_signal(0.5)) {
+				qpl::println(
+					qpl::big_number_string(ctr / clock.elapsed_f()), " / sec ",
+					qpl::big_number_string(filled_ctr), " filled - ",
+					qpl::big_number_string(stuck_ctr), " stuck - "
+				);
+
+			}
+		}
+	}
+
 	void init() override {
 		this->randomize();
-
+		//this->set_valid();
+		//this->benchmark_solve();
+	}
+	void next_step() {
+		if (this->step_ctr % 2 == 0) {
+			this->current_grid.solve_step();
+		}
+		this->grid_graphic.update(this->current_grid);
+		++this->step_ctr;
 	}
 	void updating() override {
-		if (this->event().key_pressed(sf::Keyboard::X)) {
+		if (this->event().key_pressed(sf::Keyboard::C)) {
 			this->randomize();
+		}
+		if (this->event().key_pressed(sf::Keyboard::V)) {
+			this->set_valid();
+		}
+		if (this->event().key_pressed(sf::Keyboard::R)) {
+			this->reset();
+		}
+		if (this->event().key_pressed(sf::Keyboard::Space)) {
+			this->next_step();
 		}
 	}
 	void drawing() override {
-		this->draw(this->field_graphic);
+		this->draw(this->grid_graphic);
 	}
-	field<N_SIZE> field;
-	field_graphic field_graphic;
+	qpl::size step_ctr = 0u;
+	grid<N> created_grid;
+	grid<N> current_grid;
+	grid_graphic grid_graphic;
 };
 
 int main() try {
